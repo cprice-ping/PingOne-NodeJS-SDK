@@ -3,7 +3,7 @@ import { fileURLToPath } from "url";
 import path from "path";
 // import fs from "fs";
 
-import * as pingOneClient from "../sdk/pingOneClient.js"
+import * as pingOneClient from "../sdk/pingOneSdk.js"
 
 // import crypto from "crypto"
 

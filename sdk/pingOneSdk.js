@@ -22,6 +22,7 @@ export async function getSession(sessionToken) {
   const response = await fetch(url, {
     method: 'get',
     headers: {
+      "Content-Type": "application/json",
       'Authorization': `Bearer ${accessToken}`,
       'Cookie': `ST=${sessionToken}`
     }
@@ -43,9 +44,9 @@ export async function updateSession(sessionToken, session) {
   const response = await fetch(url, {
     method: 'put',
     headers: {
+      "Content-Type": "application/json",
       'Authorization': `Bearer ${accessToken}`,
-      'Cookie': `ST=${sessionToken}`,
-      'content-type': 'application/json'
+      'Cookie': `ST=${sessionToken}`
     },
     body: JSON.stringify(deviceBody)
   })
@@ -56,6 +57,56 @@ export async function updateSession(sessionToken, session) {
   return response;
 }
 /* PingOne Sessions */
+
+/******************************************
+* PingOne Protect
+******************************************/
+export async function getProtectDecision(decisionBody) { 
+
+  const accessToken = await getWorkerToken();
+
+  const apiEndpoint = `riskEvaluations`
+  const url = `${p1ApiRoot}/${apiEndpoint}`
+
+  const response = await fetch(url, {
+    method: 'put',
+    headers: {
+      "Content-Type": "application/json",
+      'Authorization': `Bearer ${accessToken}`
+    },
+    body: JSON.stringify(deviceBody)
+  })
+  .then(res => res.json())
+  .then(data => { return data })
+  .catch(err => console.log(`${apiEndpoint} Error: ${err.code}`))
+  
+  return response;
+}
+
+export async function updateProtectDecision(protectDecisionId, status) { 
+
+  const accessToken = await getWorkerToken();
+
+  const apiEndpoint = `riskEvaluations/${protectDecisionId}/event`
+  const url = `${p1ApiRoot}/${apiEndpoint}`
+
+  const response = await fetch(url, {
+    method: 'put',
+    headers: {
+      "Content-Type": "application/json",
+      'Authorization': `Bearer ${accessToken}`
+    },
+    body: {
+      "completionStatus": status
+    }
+  })
+  .then(res => res.json())
+  .then(data => { return data })
+  .catch(err => console.log(`${apiEndpoint} Error: ${err.code}`))
+  
+  return response;
+}
+/* PingOne Protect */
 
 /********************************************
  * PingOne MFA
@@ -168,8 +219,8 @@ export async function uploadImage(filename, referenceImage) {
   const response = await fetch(url, {
     method: 'post',
     headers: {
-      'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'image/jpeg',
+      'Authorization': `Bearer ${accessToken}`,
       'content-disposition': `attachment; filename=${filename}`
     },
     body: referenceImage
@@ -226,8 +277,8 @@ const getWorkerToken = async () => {
     const response = await fetch(url, {
       method: 'post',
       headers: {
-        "X-SK-API-KEY": process.env.dvApiKey,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "X-SK-API-KEY": process.env.DVAPIKEY
       },
       body: JSON.stringify(requestBody)
     })
