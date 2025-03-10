@@ -30,7 +30,7 @@
 | **Protect** | | | 
 | | `getProtectDecision` | |
 | | `updateProtectDecision` | |
-| | **MFA** | | |
+| **MFA** | | |
 | | `createMfaDevice` | |
 | | `activateMfaDevice` | |
 | | `createMfaDeviceAuthentication` | |
