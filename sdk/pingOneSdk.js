@@ -1,4 +1,4 @@
-import fetch from "node-fetch";
+import fetch, { Headers } from "node-fetch";
 
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
@@ -44,7 +44,7 @@ const getWorkerToken = async () => {
 // Obtains an "SDK token" that is passed into the DV widget to execute the flow policy.
 // The session token is passed in via 'global.sessionToken' to make it available to the flow.
 // exports.getSdkToken = async (sessionToken) => {
-export async function getSdkToken(sessionToken, policyId) {
+export async function getSdkToken(policyId, sessionToken) {
   const requestBody = {
     policyId: policyId
   };
@@ -71,11 +71,11 @@ export async function getSdkToken(sessionToken, policyId) {
   .then(data => { return data })
   .catch(err => console.log(`${apiEndpoint} Error: ${err.code}`))
 
-  //console.log(response)
-  return response.access_token
+  // console.log(response)
+  return response
 } 
 
-async function makeApiCall(url, method, body, headers){
+async function makeApiCall(url, method, body, extraHeaders){
   console.log(`API Call: ${method} - ${url}`)
   const accessToken = await getWorkerToken();
 
@@ -369,4 +369,4 @@ export async function uploadImage(filename, image) {
   
   return response;
 }
-/* PingOne Images API */
+//* PingOne Images API */
