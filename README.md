@@ -27,7 +27,7 @@
 | **Credentials** | | |
 | | `pairDigitalWallet` | |
 | | `getCredentialTransaction` (Polling) | |
-| **Protect** | | | 
+| **Protect** | | |
 | | `getProtectDecision` | |
 | | `updateProtectDecision` | |
 | **MFA** | | |
