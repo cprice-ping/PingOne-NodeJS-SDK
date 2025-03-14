@@ -37,3 +37,68 @@
 | | `validateMfaDeviceAuthentication` | |
 | **Images** | | |
 | | `uploadImage` | |
+
+### Using the SDK
+
+The SDK handles the actual P1 API call - it will get a Worker token and add it to the API call.
+Given the variability of the P1 APIs - it's up to the calling function to construct the proper contents of the request.
+
+#### PingOne Protect
+
+| PingOne API | Methods |
+| --- | --- |
+| `getProtectDecision` |[Create Risk Evaluation](https://apidocs.pingidentity.com/pingone/platform/v1/api/#post-create-risk-evaluation) |
+| `updateProtectDecision` |[Update Risk Evaluation](https://apidocs.pingidentity.com/pingone/platform/v1/api/#put-update-risk-evaluation) |
+
+`getProtectDecision`:
+
+Construct the API Body like this:
+
+```js
+// Construct Risk Eval body
+    const body = {
+      event: {
+        "targetResource": { 
+            "id": "Signals SDK demo",
+            "name": "Signals SDK demo"
+        },
+        "ip": req.headers['x-forwarded-for'].split(",")[0].trim(), 
+        "flow": { 
+            "type": "AUTHENTICATION",
+            "sub-type": "ACTIVE_SESSION"
+        },
+        "session": {
+            "id": req.body.sessionId
+        },
+        "browser": {
+            "userAgent": req.headers['user-agent']
+        },
+        "sdk": {
+          "signals": {
+              "data": req.body.sdkpayload // Signals SDK payload from Client
+          }
+        },
+        "user": {
+          "id": username, // if P1, send in the UserId and set `type` to PING_ONE
+          "name": username, // This is displayed in Dashboard and Audit
+          "type": "EXTERNAL"
+        },
+        "sharingType": "PRIVATE", 
+        "origin": "FACILE_DEMO"
+      }
+    } 
+  ```
+
+Then pass the body into the SDK method:
+
+```js
+const riskEval = await pingOneClient.getProtectDecision(body)
+```
+
+Note: The SDK takes care of the Headers \ Method for this specific call
+
+`updateProtectDecision`:`
+
+```js
+const updateEval = await pingOneClient.updateProtectDecision(riskEval.id, "SUCCESS")
+```

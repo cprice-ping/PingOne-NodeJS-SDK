@@ -76,6 +76,7 @@ export async function getSdkToken(policyId, sessionToken) {
 } 
 
 async function makeApiCall(url, method, body, extraHeaders){
+  //TODO: `extraHeaders` needs to account for HAL events on `Content-Type` and additional ones
   console.log(`API Call: ${method} - ${url}`)
   const accessToken = await getWorkerToken();
 
