@@ -1,80 +1,65 @@
 #!/usr/bin/env node
 import { Server } from "@modelcontextprotocol/sdk/server";
+type JSONSchema = Record<string, any>;
+// @ts-ignore JS SDK has no types; treat as any
+import * as pingOne from "../../sdk/pingOneSdk.js";
 
-let BuiltinStdio;
-try {
-  const mod = await import("@modelcontextprotocol/sdk");
-  BuiltinStdio = mod?.StdioServerTransport;
-} catch (_) {
-  BuiltinStdio = undefined;
+function requireEnv(keys: string[]) {
+  const missing = keys.filter(k => !process.env[k]);
+  if (missing.length) {
+    throw new Error(`Missing required env vars: ${missing.join(", ")}`);
+  }
 }
 
-// Minimal stdio transport compatible with MCP JSON-RPC framing
-class FallbackStdioServerTransport {
+class StdioTransport {
+  onmessage?: (msg: unknown) => void;
+  onclose?: () => void;
+  private writer: NodeJS.WriteStream;
   constructor() {
-    this.onmessage = undefined;
-    this.onclose = undefined;
-
+    this.writer = process.stdout;
     const reader = process.stdin;
-    const writer = process.stdout;
-
-    this._writer = writer;
-
     reader.setEncoding("utf8");
     let buffer = "";
+    const emitClose = () => { if (this.onclose) this.onclose(); };
     reader.on("data", chunk => {
       buffer += chunk;
-      while (true) {
+      for (;;) {
         const headerEnd = buffer.indexOf("\r\n\r\n");
         if (headerEnd === -1) break;
         const headers = buffer.slice(0, headerEnd);
-        const match = headers.match(/Content-Length:\s*(\d+)/i);
-        if (!match) { buffer = buffer.slice(headerEnd + 4); continue; }
-        const length = parseInt(match[1], 10);
+        const m = headers.match(/Content-Length:\s*(\d+)/i);
+        if (!m) { buffer = buffer.slice(headerEnd + 4); continue; }
+        const len = parseInt(m[1], 10);
         const bodyStart = headerEnd + 4;
-        const bodyEnd = bodyStart + length;
+        const bodyEnd = bodyStart + len;
         if (buffer.length < bodyEnd) break;
         const json = buffer.slice(bodyStart, bodyEnd);
         buffer = buffer.slice(bodyEnd);
         try {
-          const message = JSON.parse(json);
-          if (typeof this.onmessage === 'function') this.onmessage(message);
-        } catch (_) { /* ignore malformed frames */ }
+          const msg = JSON.parse(json);
+          this.onmessage?.(msg);
+        } catch { /* ignore malformed */ }
       }
     });
-
-    const closeHandler = () => { if (typeof this.onclose === 'function') this.onclose(); };
-    reader.on('end', closeHandler);
-    reader.on('close', closeHandler);
-    reader.on('error', closeHandler);
+    reader.on("end", emitClose);
+    reader.on("close", emitClose);
+    reader.on("error", emitClose);
   }
-
-  async connect() {
-    // No-op; compatibility with SDK's expected async connect
-    return this;
+  async start(): Promise<void> {
+    return;
   }
-
-  send(message) {
+  async send(message: unknown): Promise<void> {
     const data = JSON.stringify(message);
     const frame = `Content-Length: ${Buffer.byteLength(data, "utf8")}\r\n\r\n${data}`;
-    this._writer.write(frame);
+    this.writer.write(frame);
   }
-
-  close() {
-    try { this._writer.end && this._writer.end(); } catch (_) {}
-    if (typeof this.onclose === 'function') this.onclose();
-  }
-}
-import * as pingOne from "../sdk/pingOneSdk.js";
-
-function requireEnv(keys) {
-  const missing = keys.filter(k => !process.env[k]);
-  if (missing.length) {
-    throw new Error(`Missing required env vars: ${missing.join(', ')}`);
+  async close(): Promise<void> {
+    try { (this.writer as any).end?.(); } catch {}
+    this.onclose?.();
   }
 }
 
-const transport = BuiltinStdio ? new BuiltinStdio() : new FallbackStdioServerTransport();
+const transport = new StdioTransport();
 const server = new Server({
   name: "pingone-mcp-server",
   version: "1.0.0",
@@ -91,8 +76,8 @@ const server = new Server({
           extra: { type: "object" }
         },
         required: ["name"]
-      },
-      handler: async (input) => {
+      } as JSONSchema,
+      handler: async (input: any) => {
         requireEnv(["APIROOT","AUTHROOT","ENVID","WORKERID","WORKERSECRET"]);
         const { name, enabled, tokenEndpointAuthMethod, extra } = input;
         const res = await pingOne.createOidcServiceApplication(name, { enabled, tokenEndpointAuthMethod, extra });
@@ -102,8 +87,8 @@ const server = new Server({
     {
       name: "pingone.getProtectDecision",
       description: "Create a PingOne Protect risk evaluation",
-      inputSchema: { type: "object", properties: { body: { type: "object" } }, required: ["body"] },
-      handler: async (input) => {
+      inputSchema: { type: "object", properties: { body: { type: "object" } }, required: ["body"] } as JSONSchema,
+      handler: async (input: any) => {
         requireEnv(["APIROOT","AUTHROOT","ENVID","WORKERID","WORKERSECRET"]);
         const res = await pingOne.getProtectDecision(input.body);
         return { content: [{ type: "json", json: res }] };
@@ -112,8 +97,8 @@ const server = new Server({
     {
       name: "pingone.updateProtectDecision",
       description: "Update a PingOne Protect risk evaluation status",
-      inputSchema: { type: "object", properties: { id: { type: "string" }, status: { type: "string" } }, required: ["id","status"] },
-      handler: async (input) => {
+      inputSchema: { type: "object", properties: { id: { type: "string" }, status: { type: "string" } }, required: ["id","status"] } as JSONSchema,
+      handler: async (input: any) => {
         requireEnv(["APIROOT","AUTHROOT","ENVID","WORKERID","WORKERSECRET"]);
         const res = await pingOne.updateProtectDecision(input.id, input.status);
         return { content: [{ type: "json", json: res }] };
@@ -122,8 +107,8 @@ const server = new Server({
     {
       name: "pingone.getSession",
       description: "Get current session using a session token",
-      inputSchema: { type: "object", properties: { sessionToken: { type: "string" } }, required: ["sessionToken"] },
-      handler: async (input) => {
+      inputSchema: { type: "object", properties: { sessionToken: { type: "string" } }, required: ["sessionToken"] } as JSONSchema,
+      handler: async (input: any) => {
         requireEnv(["APIROOT","AUTHROOT","ENVID","WORKERID","WORKERSECRET"]);
         const res = await pingOne.getSession(input.sessionToken);
         return { content: [{ type: "json", json: res }] };
@@ -132,17 +117,15 @@ const server = new Server({
     {
       name: "pingone.updateSession",
       description: "Update current session (PUT) using a session token",
-      inputSchema: { type: "object", properties: { sessionToken: { type: "string" }, session: { type: "object" } }, required: ["sessionToken","session"] },
-      handler: async (input) => {
+      inputSchema: { type: "object", properties: { sessionToken: { type: "string" }, session: { type: "object" } }, required: ["sessionToken","session"] } as JSONSchema,
+      handler: async (input: any) => {
         requireEnv(["APIROOT","AUTHROOT","ENVID","WORKERID","WORKERSECRET"]);
         const res = await pingOne.updateSession(input.sessionToken, input.session);
         return { content: [{ type: "json", json: res }] };
       }
     }
   ]
-}, transport);
+});
 
-
-await server.connect();
-// Keep process alive
+await server.connect(transport);
 process.stdin.resume();
