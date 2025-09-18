@@ -1,7 +1,4 @@
-import fetch, { Headers } from "node-fetch";
-
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
+// Uses global fetch/Headers available in Node 18+
 
 const p1ApiRoot = `${process.env.APIROOT}/environments/${process.env.ENVID}`
 const p1AuthRoot = `${process.env.AUTHROOT}/${process.env.ENVID}`
@@ -12,33 +9,48 @@ const p1OrchestrateRoot = `${process.env.ORCHESTRATEAPIROOT}/v1/company/${proces
  * Helper Functions
  *******************************************/
 
+// Simple in-memory token cache
+let workerTokenCache = { token: null, expiresAt: 0 };
+
 // Obtains an access token for the PingOne worker application used to call PingOne API endpoints.
-// This is a naive implementation that gets a token every time.
-// It could be improved to cache the token and only get a new one when it is expiring.
+// Caches the token until shortly before expiry.
 const getWorkerToken = async () => {
-  
-  var urlencoded = new URLSearchParams();
+  const now = Math.floor(Date.now() / 1000);
+  if (workerTokenCache.token && workerTokenCache.expiresAt - 60 > now) {
+    return workerTokenCache.token;
+  }
+
+  const urlencoded = new URLSearchParams();
   urlencoded.append("grant_type", "client_credentials");
 
-  const apiEndpoint = "as/token"
-  const url = `${p1AuthRoot}/${apiEndpoint}`
-  
-  // console.log("Worker URL: ", url)
-  
-  const response = await fetch(url,
-    {
-      method: 'post',
-      body: urlencoded,
-      headers: { 
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': "Basic " + btoa(process.env.WORKERID+":"+process.env.WORKERSECRET)
+  const apiEndpoint = "as/token";
+  const url = `${p1AuthRoot}/${apiEndpoint}`;
+
+  const res = await fetch(url, {
+    method: 'post',
+    body: urlencoded,
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': "Basic " + btoa(process.env.WORKERID + ":" + process.env.WORKERSECRET)
     }
-  })
-  .then(res => res.json())
-  .then(data => { return data })
-  .catch(err => console.log(`${apiEndpoint} Error: ${err.code}`))
-  
-  return response.access_token;
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Worker token request failed: ${res.status} ${res.statusText} ${text}`);
+  }
+
+  const data = await res.json();
+  if (!data.access_token) {
+    throw new Error(`Worker token response missing access_token`);
+  }
+
+  const expiresIn = typeof data.expires_in === 'number' ? data.expires_in : 3600;
+  workerTokenCache = {
+    token: data.access_token,
+    expiresAt: now + expiresIn
+  };
+  return data.access_token;
 }
 
 // Obtains an "SDK token" that is passed into the DV widget to execute the flow policy.
@@ -76,24 +88,32 @@ export async function getSdkToken(policyId, sessionToken) {
 } 
 
 async function makeApiCall(url, method, body, extraHeaders){
-  //TODO: `extraHeaders` needs to account for HAL events on `Content-Type` and additional ones
   console.log(`API Call: ${method} - ${url}`)
   const accessToken = await getWorkerToken();
 
   const headers = new Headers();
   headers.append('Content-Type', 'application/json');
   headers.append('Authorization', `Bearer ${accessToken}`);
+  if (extraHeaders && typeof extraHeaders === 'object') {
+    for (const [k, v] of Object.entries(extraHeaders)) headers.append(k, v);
+  }
 
-  const response = await fetch(url, {
+  const res = await fetch(url, {
     method: method,
     headers: headers,
-    body: JSON.stringify(body)
-  })
-  .then(res => res.json())
-  .then(data => { return data })
-  .catch(err => console.log(`${url} Error: ${err}`))
-  // console.log("API Response: ", response)
-  return response
+    body: body !== undefined ? JSON.stringify(body) : undefined
+  });
+
+  const contentType = res.headers.get('content-type') || '';
+  const parseBody = async () => contentType.includes('application/json') ? res.json() : res.text();
+  const payload = await parseBody().catch(() => undefined);
+
+  if (!res.ok) {
+    const errorDetail = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    throw new Error(`Request failed ${res.status} ${res.statusText}: ${errorDetail}`);
+  }
+
+  return payload;
 } 
 
 /**
@@ -162,11 +182,12 @@ export async function getSession(sessionToken) {
       'Cookie': `ST=${sessionToken}`
     }
   })
-  .then(res => res.json())
-  .then(data => { return data })
-  .catch(err => console.log(`${apiEndpoint} Error: ${err.code}`))
-  
-  return response;
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`${apiEndpoint} failed: ${response.status} ${response.statusText} ${text}`);
+  }
+  const data = await response.json();
+  return data;
 }
 
 // Updates the session identified by the provided token.
@@ -185,11 +206,12 @@ export async function updateSession(sessionToken, session) {
     },
     body: JSON.stringify(session)
   })
-  .then(res => res.json())
-  .then(data => { return data })
-  .catch(err => console.log(`${apiEndpoint} Error: ${err.code}`))
-  
-  return response;
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`${apiEndpoint} failed: ${response.status} ${response.statusText} ${text}`);
+  }
+  const data = await response.json();
+  return data;
 }
 /* PingOne Sessions */
 
@@ -270,6 +292,31 @@ export async function updateProtectDecision(id, status) {
 }
 /* PingOne Protect */
 
+/******************************************
+* PingOne Applications (OIDC)
+******************************************/
+// Creates a new OIDC application with client_credentials (service app)
+// Doc: POST /environments/{envId}/applications/oidc
+export async function createOidcServiceApplication(displayName, options = {}) {
+
+  const apiEndpoint = `applications/oidc`;
+  const url = `${p1ApiRoot}/${apiEndpoint}`;
+
+  // Minimal payload for client_credentials application
+  const body = {
+    name: displayName,
+    enabled: options.enabled ?? true,
+    grantTypes: ["client_credentials"],
+    tokenEndpointAuthMethod: options.tokenEndpointAuthMethod || "client_secret_basic",
+    // Optional: scopes, signing, and access token settings
+    // Accept additional fields to allow callers to extend without SDK changes
+    ...options.extra
+  };
+
+  const response = await makeApiCall(url, "post", body);
+  return response;
+}
+
 /********************************************
  * PingOne MFA
  *******************************************/
@@ -298,11 +345,12 @@ export async function activateMfaDevice(userId, deviceId, body){
     },
     body: JSON.stringify(body)
   })
-  .then(response => response.text())
-  .then(data => { return data })
-  .catch(err => console.log(`${apiEndpoint} Error: ${err.code}`))
-  
-  return response
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`${apiEndpoint} failed: ${response.status} ${response.statusText} ${text}`);
+  }
+  const data = await response.text();
+  return data
 }
 
 export async function createMfaDeviceAuthentication(userId){
@@ -336,11 +384,12 @@ export async function validateMfaDeviceAuthentication(deviceAuthId, body){
     },
     body: JSON.stringify(body)
   })
-  .then(res => res.json())
-  .then(data => { return data })
-  .catch(err => console.log(`${apiEndpoint} Error: ${err.code}`))
-  
-  return response
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`${apiEndpoint} failed: ${response.status} ${response.statusText} ${text}`);
+  }
+  const data = await response.json();
+  return data
 }
 /* PingOne MFA */
 
@@ -365,9 +414,12 @@ export async function uploadImage(filename, image) {
     },
     body: image
     })
-    .then(res => res.json())
-    .catch(err => console.log(`${apiEndpoint} Error: ${err.code}`))
-  
-  return response;
+    
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`${apiEndpoint} failed: ${response.status} ${response.statusText} ${text}`);
+  }
+  const data = await response.json();
+  return data;
 }
 //* PingOne Images API */

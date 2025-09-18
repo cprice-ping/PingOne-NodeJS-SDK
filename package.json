@@ -1,0 +1,14 @@
+{
+  "name": "pingone-nodejs-sdk-repo",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.2.0"
+  },
+  "scripts": {
+    "mcp:server": "node mcp/server.js"
+  }
+}

@@ -37,6 +37,8 @@
 | | `validateMfaDeviceAuthentication` | |
 | **Images** | | |
 | | `uploadImage` | |
+| **Applications** | | |
+| | `createOidcServiceApplication` | [Create OIDC Application – Service App](https://apidocs.pingidentity.com/pingone/platform/v1/api/#post-create-application-oidc-protocol---service-app) |
 
 ### Using the SDK
 
@@ -101,4 +103,78 @@ Note: The SDK takes care of the Headers \ Method for this specific call
 
 ```js
 const updateEval = await pingOneClient.updateProtectDecision(riskEval.id, "SUCCESS")
+```
+
+## MCP Server
+
+Expose this SDK to MCP-compatible agents (e.g., LM Studio) via a simple MCP server.
+
+- Tools exposed:
+  - `pingone.createOidcServiceApplication`
+  - `pingone.getProtectDecision`
+  - `pingone.updateProtectDecision`
+  - `pingone.getSession`
+  - `pingone.updateSession`
+
+### Run
+
+1) Set required environment variables:
+
+```
+APIROOT=https://api.pingone.com/v1
+AUTHROOT=https://auth.pingone.com
+ENVID=YOUR_ENV_ID
+WORKERID=YOUR_WORKER_ID
+WORKERSECRET=YOUR_WORKER_SECRET
+```
+
+2) Start the server:
+
+```
+npm run mcp:server
+```
+
+### LM Studio (mcp.json)
+
+Add an entry to LM Studio's `mcp.json` (OpenAI structure), pointing to this server using stdio:
+
+```json
+{
+  "servers": {
+    "pingone": {
+      "command": "node",
+      "args": ["mcp/server.js"],
+      "env": {
+        "APIROOT": "https://api.pingone.com/v1",
+        "AUTHROOT": "https://auth.pingone.com",
+        "ENVID": "YOUR_ENV_ID",
+        "WORKERID": "YOUR_WORKER_ID",
+        "WORKERSECRET": "YOUR_WORKER_SECRET"
+      }
+    }
+  }
+}
+```
+
+Once configured, LM Studio will list the `pingone.*` tools and you can call them with JSON parameters.
+
+#### PingOne Applications (OIDC)
+
+Create a client_credentials (service) application:
+
+```js
+// Minimal: name only
+const app = await pingOneClient.createOidcServiceApplication("My Service App");
+
+// Advanced: override defaults and pass extra fields
+const app2 = await pingOneClient.createOidcServiceApplication("My Service App 2", {
+  enabled: true,
+  tokenEndpointAuthMethod: "client_secret_post", // or private_key_jwt
+  extra: {
+    // Any PingOne OIDC fields, for example:
+    // responseTypes, scopes, accessToken:
+    scopes: ["p1:read:all"],
+    accessToken: { ttl: 3600 }
+  }
+});
 ```
